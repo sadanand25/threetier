@@ -10,13 +10,25 @@ env:
   DOCKER_IMAGE: ${{ secrets.DOCKER_USERNAME }}/simple-app
   K8S_NAMESPACE: default
 
+permissions:
+  contents: write
+
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout code
+    - name: Checkout code with full history
       uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0  # Fetch all history to get latest changes
+        ref: ${{ github.head_ref || github.ref_name }}  # Check out the correct branch
+    
+    - name: Pull latest changes (for PRs)
+      if: github.event_name == 'pull_request'
+      run: |
+        git pull origin ${{ github.head_ref }}
     
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2
@@ -38,44 +50,41 @@ jobs:
       uses: azure/setup-kubectl@v3
       with:
         version: 'latest'
-  deploy:
-    name: "🚀 Update K8s Manifest"
-    runs-on: ubuntu-latest    
-    if: github.event_name == 'push' 
-    permissions:
-      contents: write # Needed to push manifest changes
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}      
-      - name: Update deployment image
-        run: |        
-          sed -i "s|image:.*|image: ${{ env.DOCKER_IMAGE }}:${{ github.sha }}|g" k8s/deployment.yaml
-          grep -n "image:" k8s/deployment.yaml  
-
-#    - name: Deploy to Kubernetes
-#      run: |
-#        kubectl apply -f k8s/deployment.yaml
-#        kubectl apply -f k8s/service.yaml
-#        kubectl rollout status deployment/simple-app
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Get short SHA
-        id: sha
-        run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-      - name: Configure git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-      
-      - name: Commit and push
-        run: |
-          git add k8s/deployment.yaml
-          git diff --cached --quiet || git commit -m "ci: update k8s images to [skip ci]"
-          git push
-
+    
+    - name: Configure kubectl
+      run: |
+        mkdir -p $HOME/.kube
+        echo "${{ secrets.KUBE_CONFIG }}" | base64 --decode > $HOME/.kube/config
+    
+    - name: Get current image from deployment.yaml
+      id: current_image
+      run: |
+        CURRENT_IMAGE=$(grep "image:" k8s/deployment.yaml | head -1 | awk '{print $2}')
+        echo "Current image: $CURRENT_IMAGE"
+        echo "current_image=$CURRENT_IMAGE" >> $GITHUB_OUTPUT
+    
+    - name: Update deployment image
+      run: |
+        NEW_IMAGE="${{ env.DOCKER_IMAGE }}:${{ github.sha }}"
+        echo "Updating from ${{ steps.current_image.outputs.current_image }} to $NEW_IMAGE"
+        sed -i "s|image:.*|image: $NEW_IMAGE|g" k8s/deployment.yaml
+    
+    - name: Check if image changed
+      id: image_changed
+      run: |
+        if [ "${{ steps.current_image.outputs.current_image }}" != "${{ env.DOCKER_IMAGE }}:${{ github.sha }}" ]; then
+          echo "changed=true" >> $GITHUB_OUTPUT
+          echo "Image needs update"
+        else
+          echo "changed=false" >> $GITHUB_OUTPUT
+          echo "Image already up to date"
+        fi
+    
+    - name: Commit and push updated deployment.yaml
+      if: steps.image_changed.outputs.changed == 'true'
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add k8s/deployment.yaml
+        git commit -m "ci: update app image to ${{ github.sha }} [skip ci]"
+        git push origin HEAD:${{ github.head_ref || github.ref_name }}
