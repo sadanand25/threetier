@@ -11,7 +11,7 @@ env:
   K8S_NAMESPACE: default
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
     
     steps:
@@ -38,37 +38,48 @@ jobs:
       uses: azure/setup-kubectl@v3
       with:
         version: 'latest'
-    
-    - name: Update deployment image
-      run: |
-        sed -i "s|image:.*|image: ${{ env.DOCKER_IMAGE }}:${{ github.sha }}|g" k8s/deployment.yaml
-    
+  deploy:
+    name: "🚀 Update K8s Manifest"
+    runs-on: ubuntu-latest    
+    if: github.event_name == 'push' 
+    permissions:
+      contents: write # Needed to push manifest changes
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}      
+      - name: Update deployment image
+        run: |
+          sed -i "s|image:.*|image: ${{ env.DOCKER_IMAGE }}:${{ github.sha }}|g" k8s/deployment.yaml
+          grep -n "image:" k8s/deployment.yaml  
+
 #    - name: Deploy to Kubernetes
 #      run: |
 #        kubectl apply -f k8s/deployment.yaml
 #        kubectl apply -f k8s/service.yaml
 #        kubectl rollout status deployment/simple-app
 
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Get short SHA
-      id: sha
-      run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-    - name: Configure git
-      run: |
+      - name: Get short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      - name: Configure git
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
       
-    - name: Commit and push
-      run: |
+      - name: Commit and push
+        run: |
           git add k8s/deployment.yaml
           git diff --cached --quiet || git commit -m "ci: update k8s images to [skip ci]"
           git push
 
-    - name: Verify deployment
-      run: |
-        kubectl get pods
-        kubectl get svc
+      - name: Verify deployment
+        run: |
+          kubectl get pods
+          kubectl get svc
