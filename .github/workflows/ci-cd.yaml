@@ -49,12 +49,15 @@ jobs:
 #        kubectl apply -f k8s/service.yaml
 #        kubectl rollout status deployment/simple-app
 
-    - name: Commit and push manifest update
+    - name: Configure git
       run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+      
+    - name: Commit and push
+      run: |
           git add k8s/deployment.yaml
-          git diff --cached --quiet || git commit -m "ci: update k8s images to ${{ steps.sha.outputs.short }} [skip ci]"
+          git diff --cached --quiet || git commit -m "ci: update k8s images to [skip ci]"
           git push
 
     - name: Verify deployment
