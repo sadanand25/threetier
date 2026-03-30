@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: app
-        image: sadanand25/simple-app:latest
+        image: sadanand25/simple-app:594f32cb0e8f4f560f216f84b17e7eaf570ec41d
         ports:
         - containerPort: 3000
         readinessProbe:
