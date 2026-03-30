@@ -50,7 +50,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}      
       - name: Update deployment image
-        run: |
+        run: |        
           sed -i "s|image:.*|image: ${{ env.DOCKER_IMAGE }}:${{ github.sha }}|g" k8s/deployment.yaml
           grep -n "image:" k8s/deployment.yaml  
 
@@ -79,7 +79,3 @@ jobs:
           git diff --cached --quiet || git commit -m "ci: update k8s images to [skip ci]"
           git push
 
-      - name: Verify deployment
-        run: |
-          kubectl get pods
-          kubectl get svc
